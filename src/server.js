@@ -1,0 +1,60 @@
+const express = require('express');
+const cors = require('cors');
+const { sequelize } = require('./config/database');
+const authRoutes = require('./routes/auth.routes');
+const propertyRoutes = require('./routes/property.routes');
+const leadRoutes = require('./routes/lead.routes');
+const agentRoutes = require('./routes/agent.routes');
+const dealRoutes = require('./routes/deal.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
+const taskRoutes = require('./routes/task.routes');
+const calendarRoutes = require('./routes/calendar.routes');
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/properties', propertyRoutes);
+app.use('/api/leads', leadRoutes);
+app.use('/api/agents', agentRoutes);
+app.use('/api/deals', dealRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/calendar', calendarRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+const PORT = process.env.PORT || 5000;
+
+// Database connection and server start
+const startServer = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('Database connection established successfully.');
+    
+    // Sync all models with database
+    await sequelize.sync({ alter: true });
+    console.log('Database models synchronized.');
+    
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Unable to connect to the database:', error);
+  }
+};
+
+startServer(); 
