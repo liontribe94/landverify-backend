@@ -299,4 +299,131 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
-} 
+}
+
+exports.uploadDocument = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property not found'
+      });
+    }
+
+    // Check ownership or admin status
+    if (property.owner_id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to upload documents for this property'
+      });
+    }
+
+    const { document_type, document_name, document_url } = req.body;
+
+    const newDocument = {
+      type: document_type,
+      name: document_name,
+      url: document_url,
+      uploaded_by: req.user._id,
+      uploaded_at: new Date(),
+      verification_status: 'pending'
+    };
+
+    const historyEntry = {
+      timestamp: new Date(),
+      action: 'DOCUMENT_UPLOADED',
+      user_id: req.user._id,
+      details: `New ${document_type} document uploaded: ${document_name}`
+    };
+
+    property.documents.push(newDocument);
+    property.history_log.push(historyEntry);
+    await property.save();
+
+    res.json({
+      success: true,
+      data: property
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading document',
+      error: error.message
+    });
+  }
+};
+
+exports.verifyDocument = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property not found'
+      });
+    }
+
+    // Only admins can verify documents
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to verify documents'
+      });
+    }
+
+    const { document_index, verification_status, notes } = req.body;
+
+    if (!property.documents[document_index]) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      });
+    }
+
+    // Update document verification status
+    property.documents[document_index] = {
+      ...property.documents[document_index],
+      verification_status,
+      verified_by: req.user._id,
+      verified_at: new Date(),
+      verification_notes: notes
+    };
+
+    // Add to history log
+    const historyEntry = {
+      timestamp: new Date(),
+      action: 'DOCUMENT_VERIFIED',
+      user_id: req.user._id,
+      details: `Document ${property.documents[document_index].name} verified with status: ${verification_status}`,
+      notes: notes
+    };
+
+    property.history_log.push(historyEntry);
+
+    // Update property verification status if all documents are verified
+    const allDocumentsVerified = property.documents.every(doc => doc.verification_status === 'verified');
+    const anyDocumentRejected = property.documents.some(doc => doc.verification_status === 'rejected');
+
+    if (allDocumentsVerified) {
+      property.verification_status = 'verified';
+    } else if (anyDocumentRejected) {
+      property.verification_status = 'rejected';
+    }
+
+    await property.save();
+
+    res.json({
+      success: true,
+      data: property
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error verifying document',
+      error: error.message
+    });
+  }
+}; 
