@@ -1,31 +1,10 @@
-const { Agent, User, Lead, Deal } = require('../models');
+const Agent = require('../models/agent.model');
 
 exports.getAllAgents = async (req, res) => {
   try {
-    const filters = {};
-    if (req.query.status) filters.status = req.query.status;
-
-    const agents = await Agent.findAll({
-      where: filters,
-      include: [
-        {
-          model: User,
-          as: 'user',
-          attributes: ['id', 'first_name', 'last_name', 'email', 'phone']
-        },
-        {
-          model: Lead,
-          as: 'leads',
-          attributes: ['id', 'name', 'status', 'created_at']
-        },
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value', 'created_at']
-        }
-      ],
-      order: [['created_at', 'DESC']]
-    });
+    const agents = await Agent.find()
+      .populate('user', 'first_name last_name email')
+      .sort({ created_at: -1 });
 
     res.json({
       success: true,
@@ -42,25 +21,10 @@ exports.getAllAgents = async (req, res) => {
 
 exports.getAgentById = async (req, res) => {
   try {
-    const agent = await Agent.findByPk(req.params.id, {
-      include: [
-        {
-          model: User,
-          as: 'user',
-          attributes: ['id', 'first_name', 'last_name', 'email', 'phone']
-        },
-        {
-          model: Lead,
-          as: 'leads',
-          attributes: ['id', 'name', 'status', 'created_at']
-        },
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value', 'created_at']
-        }
-      ]
-    });
+    const agent = await Agent.findById(req.params.id)
+      .populate('user', 'first_name last_name email')
+      .populate('leads')
+      .populate('deals');
 
     if (!agent) {
       return res.status(404).json({
@@ -84,21 +48,13 @@ exports.getAgentById = async (req, res) => {
 
 exports.createAgent = async (req, res) => {
   try {
-    // Only admins can create agents
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to create agents'
-      });
-    }
-
     const agent = await Agent.create({
       ...req.body,
       performance_metrics: {
-        total_deals: 0,
         deals_closed: 0,
-        total_value: 0,
-        lead_conversion_rate: 0
+        revenue_generated: 0,
+        client_satisfaction: 0,
+        response_time: 0
       }
     });
 
@@ -117,7 +73,7 @@ exports.createAgent = async (req, res) => {
 
 exports.updateAgent = async (req, res) => {
   try {
-    const agent = await Agent.findByPk(req.params.id);
+    const agent = await Agent.findById(req.params.id);
 
     if (!agent) {
       return res.status(404).json({
@@ -126,15 +82,16 @@ exports.updateAgent = async (req, res) => {
       });
     }
 
-    // Agents can update their own profile, admins can update any agent
-    if (req.user.role !== 'admin' && agent.user_id !== req.user.id) {
+    // Only admin or the agent themselves can update
+    if (req.user.role !== 'admin' && agent.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this agent'
       });
     }
 
-    await agent.update(req.body);
+    agent.set(req.body);
+    await agent.save();
 
     res.json({
       success: true,
@@ -151,7 +108,7 @@ exports.updateAgent = async (req, res) => {
 
 exports.deleteAgent = async (req, res) => {
   try {
-    const agent = await Agent.findByPk(req.params.id);
+    const agent = await Agent.findById(req.params.id);
 
     if (!agent) {
       return res.status(404).json({
@@ -160,7 +117,7 @@ exports.deleteAgent = async (req, res) => {
       });
     }
 
-    // Only admins can delete agents
+    // Only admin can delete agents
     if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -168,7 +125,7 @@ exports.deleteAgent = async (req, res) => {
       });
     }
 
-    await agent.destroy();
+    await agent.deleteOne();
 
     res.json({
       success: true,
@@ -185,7 +142,7 @@ exports.deleteAgent = async (req, res) => {
 
 exports.updatePerformanceMetrics = async (req, res) => {
   try {
-    const agent = await Agent.findByPk(req.params.id);
+    const agent = await Agent.findById(req.params.id);
 
     if (!agent) {
       return res.status(404).json({
@@ -194,7 +151,7 @@ exports.updatePerformanceMetrics = async (req, res) => {
       });
     }
 
-    // Only admins can update performance metrics
+    // Only admin can update performance metrics
     if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -202,8 +159,11 @@ exports.updatePerformanceMetrics = async (req, res) => {
       });
     }
 
-    const { performance_metrics } = req.body;
-    await agent.update({ performance_metrics });
+    agent.performance_metrics = {
+      ...agent.performance_metrics,
+      ...req.body
+    };
+    await agent.save();
 
     res.json({
       success: true,

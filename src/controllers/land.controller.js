@@ -2,10 +2,10 @@ const Land = require('../models/land.model');
 
 exports.getAllLands = async (req, res) => {
   try {
-    const lands = await Land.findAll({
-      include: ['owner']
-    });
-    
+    const lands = await Land.find()
+      .populate('owner', 'first_name last_name email')
+      .sort({ created_at: -1 });
+
     res.json({
       success: true,
       data: lands
@@ -21,9 +21,8 @@ exports.getAllLands = async (req, res) => {
 
 exports.getLandById = async (req, res) => {
   try {
-    const land = await Land.findByPk(req.params.id, {
-      include: ['owner']
-    });
+    const land = await Land.findById(req.params.id)
+      .populate('owner', 'first_name last_name email');
 
     if (!land) {
       return res.status(404).json({
@@ -49,7 +48,7 @@ exports.createLand = async (req, res) => {
   try {
     const land = await Land.create({
       ...req.body,
-      ownerId: req.user.id
+      owner: req.user._id
     });
 
     res.status(201).json({
@@ -67,7 +66,7 @@ exports.createLand = async (req, res) => {
 
 exports.updateLand = async (req, res) => {
   try {
-    const land = await Land.findByPk(req.params.id);
+    const land = await Land.findById(req.params.id);
 
     if (!land) {
       return res.status(404).json({
@@ -76,14 +75,16 @@ exports.updateLand = async (req, res) => {
       });
     }
 
-    if (land.ownerId !== req.user.id && req.user.role !== 'admin') {
+    // Check ownership or admin status
+    if (land.owner.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this land'
       });
     }
 
-    await land.update(req.body);
+    land.set(req.body);
+    await land.save();
 
     res.json({
       success: true,
@@ -100,7 +101,7 @@ exports.updateLand = async (req, res) => {
 
 exports.deleteLand = async (req, res) => {
   try {
-    const land = await Land.findByPk(req.params.id);
+    const land = await Land.findById(req.params.id);
 
     if (!land) {
       return res.status(404).json({
@@ -109,14 +110,15 @@ exports.deleteLand = async (req, res) => {
       });
     }
 
-    if (land.ownerId !== req.user.id && req.user.role !== 'admin') {
+    // Check ownership or admin status
+    if (land.owner.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this land'
       });
     }
 
-    await land.destroy();
+    await land.deleteOne();
 
     res.json({
       success: true,

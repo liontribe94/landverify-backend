@@ -1,5 +1,4 @@
 const { Deal, Lead, Property, Agent } = require('../models');
-const { Op } = require('sequelize');
 
 exports.getOverviewStats = async (req, res) => {
   try {
@@ -7,47 +6,72 @@ exports.getOverviewStats = async (req, res) => {
     const thirtyDaysAgo = new Date(today.setDate(today.getDate() - 30));
 
     // Get total counts
-    const totalLeads = await Lead.count();
-    const totalProperties = await Property.count();
-    const totalDeals = await Deal.count();
-    const totalAgents = await Agent.count();
+    const totalLeads = await Lead.countDocuments();
+    const totalProperties = await Property.countDocuments();
+    const totalDeals = await Deal.countDocuments();
+    const totalAgents = await Agent.countDocuments();
 
     // Get recent leads
-    const newLeads = await Lead.count({
-      where: {
-        created_at: {
-          [Op.gte]: thirtyDaysAgo
-        }
+    const newLeads = await Lead.countDocuments({
+      created_at: {
+        $gte: thirtyDaysAgo
       }
     });
 
     // Get deals by stage
-    const dealsByStage = await Deal.count({
-      group: ['stage']
-    });
+    const dealsByStage = await Deal.aggregate([
+      {
+        $group: {
+          _id: '$stage',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     // Get total deal value
-    const totalDealValue = await Deal.sum('value');
+    const totalDealValue = await Deal.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$value' }
+        }
+      }
+    ]).then(result => result[0]?.total || 0);
 
     // Get verification stats
-    const verificationStats = await Property.count({
-      group: ['verification_status']
-    });
+    const verificationStats = await Property.aggregate([
+      {
+        $group: {
+          _id: '$verification_status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     // Get top performing agents
-    const topAgents = await Agent.findAll({
-      attributes: ['id', 'user_id'],
-      include: [
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: []
+    const topAgents = await Deal.aggregate([
+      {
+        $group: {
+          _id: '$agent',
+          total_deals: { $sum: 1 },
+          total_value: { $sum: '$value' }
         }
-      ],
-      group: ['Agent.id'],
-      order: [[sequelize.fn('COUNT', sequelize.col('deals.id')), 'DESC']],
-      limit: 5
-    });
+      },
+      {
+        $sort: { total_deals: -1 }
+      },
+      {
+        $limit: 5
+      },
+      {
+        $lookup: {
+          from: 'agents',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'agent_details'
+        }
+      }
+    ]);
 
     res.json({
       success: true,
@@ -78,7 +102,7 @@ exports.getOverviewStats = async (req, res) => {
 
 exports.getAgentPerformance = async (req, res) => {
   try {
-    const agent = await Agent.findByPk(req.params.id);
+    const agent = await Agent.findById(req.params.id);
 
     if (!agent) {
       return res.status(404).json({
@@ -88,25 +112,31 @@ exports.getAgentPerformance = async (req, res) => {
     }
 
     // Get agent's deals
-    const deals = await Deal.findAll({
-      where: { agent_id: agent.id },
-      attributes: [
-        'stage',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
-        [sequelize.fn('SUM', sequelize.col('value')), 'total_value']
-      ],
-      group: ['stage']
-    });
+    const deals = await Deal.aggregate([
+      {
+        $match: { agent: agent._id }
+      },
+      {
+        $group: {
+          _id: '$stage',
+          count: { $sum: 1 },
+          total_value: { $sum: '$value' }
+        }
+      }
+    ]);
 
     // Get agent's leads
-    const leads = await Lead.findAll({
-      where: { assigned_agent_id: agent.id },
-      attributes: [
-        'status',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['status']
-    });
+    const leads = await Lead.aggregate([
+      {
+        $match: { assigned_agent: agent._id }
+      },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     res.json({
       success: true,
@@ -130,21 +160,29 @@ exports.getAgentPerformance = async (req, res) => {
 exports.getLeadAnalytics = async (req, res) => {
   try {
     // Get leads by source
-    const leadsBySource = await Lead.count({
-      group: ['source']
-    });
+    const leadsBySource = await Lead.aggregate([
+      {
+        $group: {
+          _id: '$source',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     // Get leads by status
-    const leadsByStatus = await Lead.count({
-      group: ['status']
-    });
+    const leadsByStatus = await Lead.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     // Get conversion rates
-    const totalLeads = await Lead.count();
-    const convertedLeads = await Lead.count({
-      where: {
-        status: 'closed'
-      }
+    const totalLeads = await Lead.countDocuments();
+    const convertedLeads = await Lead.countDocuments({
+      status: 'closed'
     });
 
     const conversionRate = totalLeads > 0 ? (convertedLeads / totalLeads) * 100 : 0;
@@ -173,23 +211,42 @@ exports.getLeadAnalytics = async (req, res) => {
 exports.getPropertyAnalytics = async (req, res) => {
   try {
     // Get properties by verification status
-    const propertiesByStatus = await Property.count({
-      group: ['verification_status']
-    });
+    const propertiesByStatus = await Property.aggregate([
+      {
+        $group: {
+          _id: '$verification_status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     // Get properties with deals
-    const propertiesWithDeals = await Property.findAll({
-      attributes: ['id', 'address'],
-      include: [
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value']
+    const propertiesWithDeals = await Property.aggregate([
+      {
+        $lookup: {
+          from: 'deals',
+          localField: '_id',
+          foreignField: 'property',
+          as: 'deals'
         }
-      ],
-      having: sequelize.literal('COUNT(deals.id) > 0'),
-      group: ['Property.id']
-    });
+      },
+      {
+        $match: {
+          'deals.0': { $exists: true }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          address: 1,
+          deals: {
+            _id: 1,
+            stage: 1,
+            value: 1
+          }
+        }
+      }
+    ]);
 
     res.json({
       success: true,

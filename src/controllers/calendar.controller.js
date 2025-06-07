@@ -1,15 +1,13 @@
-const { Calendar, User } = require('../models');
+const Calendar = require('../models/calendar.model');
 
 exports.getAllEvents = async (req, res) => {
   try {
-    const { start_date, end_date, event_type } = req.query;
     const filters = {};
-
-    if (event_type) filters.event_type = event_type;
-    if (start_date && end_date) {
+    if (req.query.event_type) filters.event_type = req.query.event_type;
+    if (req.query.start_date && req.query.end_date) {
       filters.start_time = {
-        $gte: new Date(start_date),
-        $lte: new Date(end_date)
+        $gte: new Date(req.query.start_date),
+        $lte: new Date(req.query.end_date)
       };
     }
 
@@ -23,6 +21,7 @@ exports.getAllEvents = async (req, res) => {
 
     const events = await Calendar.find(filters)
       .populate('created_by', 'first_name last_name email')
+      .populate('attendees.user', 'first_name last_name email')
       .sort({ start_time: 1 });
 
     res.json({
@@ -32,7 +31,7 @@ exports.getAllEvents = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Error fetching calendar events',
+      message: 'Error fetching events',
       error: error.message
     });
   }
@@ -41,22 +40,13 @@ exports.getAllEvents = async (req, res) => {
 exports.getEventById = async (req, res) => {
   try {
     const event = await Calendar.findById(req.params.id)
-      .populate('created_by', 'first_name last_name email');
+      .populate('created_by', 'first_name last_name email')
+      .populate('attendees.user', 'first_name last_name email');
 
     if (!event) {
       return res.status(404).json({
         success: false,
         message: 'Event not found'
-      });
-    }
-
-    // Check access permission
-    if (req.user.role !== 'admin' && 
-        event.created_by.toString() !== req.user._id.toString() && 
-        !event.attendees.some(a => a.user.toString() === req.user._id.toString())) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to view this event'
       });
     }
 
@@ -77,7 +67,8 @@ exports.createEvent = async (req, res) => {
   try {
     const event = await Calendar.create({
       ...req.body,
-      created_by: req.user._id
+      created_by: req.user._id,
+      status: 'scheduled'
     });
 
     res.status(201).json({
@@ -95,7 +86,7 @@ exports.createEvent = async (req, res) => {
 
 exports.updateEvent = async (req, res) => {
   try {
-    const event = await Calendar.findByPk(req.params.id);
+    const event = await Calendar.findById(req.params.id);
 
     if (!event) {
       return res.status(404).json({
@@ -104,15 +95,16 @@ exports.updateEvent = async (req, res) => {
       });
     }
 
-    // Check access permission
-    if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
+    // Check if user is admin or event creator
+    if (req.user.role !== 'admin' && event.created_by.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this event'
       });
     }
 
-    await event.update(req.body);
+    event.set(req.body);
+    await event.save();
 
     res.json({
       success: true,
@@ -129,7 +121,7 @@ exports.updateEvent = async (req, res) => {
 
 exports.deleteEvent = async (req, res) => {
   try {
-    const event = await Calendar.findByPk(req.params.id);
+    const event = await Calendar.findById(req.params.id);
 
     if (!event) {
       return res.status(404).json({
@@ -138,15 +130,15 @@ exports.deleteEvent = async (req, res) => {
       });
     }
 
-    // Only admin or event creator can delete
-    if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
+    // Check if user is admin or event creator
+    if (req.user.role !== 'admin' && event.created_by.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this event'
       });
     }
 
-    await event.destroy();
+    await event.deleteOne();
 
     res.json({
       success: true,
@@ -163,8 +155,7 @@ exports.deleteEvent = async (req, res) => {
 
 exports.updateEventStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const event = await Calendar.findByPk(req.params.id);
+    const event = await Calendar.findById(req.params.id);
 
     if (!event) {
       return res.status(404).json({
@@ -173,17 +164,19 @@ exports.updateEventStatus = async (req, res) => {
       });
     }
 
-    // Check access permission
+    // Check if user is admin, event creator, or an attendee
+    const isAttendee = event.attendees.some(a => a.user.toString() === req.user._id.toString());
     if (req.user.role !== 'admin' && 
-        event.created_by !== req.user.id && 
-        !event.attendees.includes(req.user.id)) {
+        event.created_by.toString() !== req.user._id.toString() && 
+        !isAttendee) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to update this event'
+        message: 'Not authorized to update event status'
       });
     }
 
-    await event.update({ status });
+    event.status = req.body.status;
+    await event.save();
 
     res.json({
       success: true,

@@ -1,4 +1,4 @@
-const { Deal, Property, Lead, Agent } = require('../models');
+const { Deal, Property, Lead } = require('../models');
 
 exports.getAllDeals = async (req, res) => {
   try {
@@ -8,30 +8,14 @@ exports.getAllDeals = async (req, res) => {
 
     // If user is an agent, only show their deals
     if (req.user.role === 'agent') {
-      filters.agent_id = req.user.id;
+      filters.agent = req.user._id;
     }
 
-    const deals = await Deal.findAll({
-      where: filters,
-      include: [
-        {
-          model: Property,
-          as: 'property',
-          attributes: ['id', 'address', 'verification_status']
-        },
-        {
-          model: Lead,
-          as: 'lead',
-          attributes: ['id', 'name', 'email', 'phone']
-        },
-        {
-          model: Agent,
-          as: 'agent',
-          attributes: ['id', 'user_id']
-        }
-      ],
-      order: [['created_at', 'DESC']]
-    });
+    const deals = await Deal.find(filters)
+      .populate('property', 'address verification_status')
+      .populate('lead', 'first_name last_name email phone')
+      .populate('agent', 'first_name last_name email')
+      .sort({ created_at: -1 });
 
     res.json({
       success: true,
@@ -48,38 +32,15 @@ exports.getAllDeals = async (req, res) => {
 
 exports.getDealById = async (req, res) => {
   try {
-    const deal = await Deal.findByPk(req.params.id, {
-      include: [
-        {
-          model: Property,
-          as: 'property',
-          attributes: ['id', 'address', 'verification_status']
-        },
-        {
-          model: Lead,
-          as: 'lead',
-          attributes: ['id', 'name', 'email', 'phone']
-        },
-        {
-          model: Agent,
-          as: 'agent',
-          attributes: ['id', 'user_id']
-        }
-      ]
-    });
+    const deal = await Deal.findById(req.params.id)
+      .populate('property', 'address verification_status')
+      .populate('lead', 'first_name last_name email phone')
+      .populate('agent', 'first_name last_name email');
 
     if (!deal) {
       return res.status(404).json({
         success: false,
         message: 'Deal not found'
-      });
-    }
-
-    // Check access permission
-    if (req.user.role === 'agent' && deal.agent_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to view this deal'
       });
     }
 
@@ -99,7 +60,7 @@ exports.getDealById = async (req, res) => {
 exports.createDeal = async (req, res) => {
   try {
     // Verify property exists
-    const property = await Property.findByPk(req.body.property_id);
+    const property = await Property.findById(req.body.property);
     if (!property) {
       return res.status(404).json({
         success: false,
@@ -108,7 +69,7 @@ exports.createDeal = async (req, res) => {
     }
 
     // Verify lead exists
-    const lead = await Lead.findByPk(req.body.lead_id);
+    const lead = await Lead.findById(req.body.lead);
     if (!lead) {
       return res.status(404).json({
         success: false,
@@ -118,12 +79,12 @@ exports.createDeal = async (req, res) => {
 
     const deal = await Deal.create({
       ...req.body,
-      stage: 'new',
+      agent: req.user._id,
       activity_log: [{
-        timestamp: new Date(),
         action: 'DEAL_CREATED',
-        user_id: req.user.id,
-        details: 'New deal created'
+        timestamp: new Date(),
+        details: 'New deal created',
+        user_id: req.user._id
       }]
     });
 
@@ -142,7 +103,7 @@ exports.createDeal = async (req, res) => {
 
 exports.updateDeal = async (req, res) => {
   try {
-    const deal = await Deal.findByPk(req.params.id);
+    const deal = await Deal.findById(req.params.id);
 
     if (!deal) {
       return res.status(404).json({
@@ -151,28 +112,26 @@ exports.updateDeal = async (req, res) => {
       });
     }
 
-    // Check access permission
-    if (req.user.role === 'agent' && deal.agent_id !== req.user.id) {
+    // Check if user is admin or the assigned agent
+    if (req.user.role !== 'admin' && deal.agent.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this deal'
       });
     }
 
-    // Add to activity log if stage changes
-    if (req.body.stage && req.body.stage !== deal.stage) {
-      const activityEntry = {
-        timestamp: new Date(),
-        action: 'STAGE_UPDATED',
-        user_id: req.user.id,
-        details: `Stage updated from ${deal.stage} to ${req.body.stage}`
-      };
+    // Add activity log entry
+    const activityEntry = {
+      action: 'DEAL_UPDATED',
+      timestamp: new Date(),
+      details: 'Deal details updated',
+      user_id: req.user._id,
+      changes: req.body
+    };
 
-      const currentLog = deal.activity_log || [];
-      req.body.activity_log = [...currentLog, activityEntry];
-    }
-
-    await deal.update(req.body);
+    deal.set(req.body);
+    deal.activity_log.push(activityEntry);
+    await deal.save();
 
     res.json({
       success: true,
@@ -189,7 +148,7 @@ exports.updateDeal = async (req, res) => {
 
 exports.deleteDeal = async (req, res) => {
   try {
-    const deal = await Deal.findByPk(req.params.id);
+    const deal = await Deal.findById(req.params.id);
 
     if (!deal) {
       return res.status(404).json({
@@ -198,7 +157,7 @@ exports.deleteDeal = async (req, res) => {
       });
     }
 
-    // Only admins can delete deals
+    // Only admin can delete deals
     if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -206,7 +165,7 @@ exports.deleteDeal = async (req, res) => {
       });
     }
 
-    await deal.destroy();
+    await deal.deleteOne();
 
     res.json({
       success: true,
@@ -221,10 +180,53 @@ exports.deleteDeal = async (req, res) => {
   }
 };
 
+exports.updateDealStage = async (req, res) => {
+  try {
+    const deal = await Deal.findById(req.params.id);
+
+    if (!deal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Deal not found'
+      });
+    }
+
+    // Check if user is admin or the assigned agent
+    if (req.user.role !== 'admin' && deal.agent.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update this deal'
+      });
+    }
+
+    const activityEntry = {
+      action: 'STAGE_UPDATED',
+      timestamp: new Date(),
+      details: `Deal stage updated from ${deal.stage} to ${req.body.stage}`,
+      user_id: req.user._id
+    };
+
+    deal.stage = req.body.stage;
+    deal.activity_log.push(activityEntry);
+    await deal.save();
+
+    res.json({
+      success: true,
+      data: deal
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error updating deal stage',
+      error: error.message
+    });
+  }
+};
+
 exports.addDocument = async (req, res) => {
   try {
     const { document_url, document_type, notes } = req.body;
-    const deal = await Deal.findByPk(req.params.id);
+    const deal = await Deal.findById(req.params.id);
 
     if (!deal) {
       return res.status(404).json({
@@ -234,40 +236,31 @@ exports.addDocument = async (req, res) => {
     }
 
     // Check access permission
-    if (req.user.role === 'agent' && deal.agent_id !== req.user.id) {
+    if (req.user.role === 'agent' && deal.agent.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this deal'
       });
     }
 
-    const documentEntry = {
+    const document = {
       url: document_url,
       type: document_type,
       notes: notes,
       uploaded_at: new Date(),
-      uploaded_by: req.user.id
+      uploaded_by: req.user._id
     };
 
-    const currentDocs = deal.documents || [];
-    
-    await deal.update({
-      documents: [...currentDocs, documentEntry]
-    });
-
-    // Add to activity log
     const activityEntry = {
       timestamp: new Date(),
       action: 'DOCUMENT_ADDED',
-      user_id: req.user.id,
+      user_id: req.user._id,
       details: `New ${document_type} document added`
     };
 
-    const currentLog = deal.activity_log || [];
-    
-    await deal.update({
-      activity_log: [...currentLog, activityEntry]
-    });
+    deal.documents.push(document);
+    deal.activity_log.push(activityEntry);
+    await deal.save();
 
     res.json({
       success: true,

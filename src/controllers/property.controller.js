@@ -1,5 +1,4 @@
 const { Property, User, Deal } = require('../models');
-const { Op } = require('sequelize');
 
 exports.getAllProperties = async (req, res) => {
   try {
@@ -7,22 +6,10 @@ exports.getAllProperties = async (req, res) => {
     if (req.query.status) filters.verification_status = req.query.status;
     if (req.query.owner_id) filters.owner_id = req.query.owner_id;
 
-    const properties = await Property.findAll({
-      where: filters,
-      include: [
-        {
-          model: User,
-          as: 'owner',
-          attributes: ['id', 'first_name', 'last_name', 'email', 'phone']
-        },
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value', 'created_at']
-        }
-      ],
-      order: [['created_at', 'DESC']]
-    });
+    const properties = await Property.find(filters)
+      .populate('owner_id', 'first_name last_name email phone')
+      .populate('deals', 'stage value created_at')
+      .sort({ created_at: -1 });
 
     res.json({
       success: true,
@@ -39,20 +26,9 @@ exports.getAllProperties = async (req, res) => {
 
 exports.getPropertyById = async (req, res) => {
   try {
-    const property = await Property.findByPk(req.params.id, {
-      include: [
-        {
-          model: User,
-          as: 'owner',
-          attributes: ['id', 'first_name', 'last_name', 'email', 'phone']
-        },
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value', 'created_at']
-        }
-      ]
-    });
+    const property = await Property.findById(req.params.id)
+      .populate('owner_id', 'first_name last_name email phone')
+      .populate('deals', 'stage value created_at');
 
     if (!property) {
       return res.status(404).json({
@@ -76,21 +52,18 @@ exports.getPropertyById = async (req, res) => {
 
 exports.createProperty = async (req, res) => {
   try {
-    const property = await Property.create({
-      ...req.body,
-      owner_id: req.user.id,
-      verification_status: 'pending'
-    });
-
     // Add initial entry to history_log
     const historyEntry = {
       timestamp: new Date(),
       action: 'PROPERTY_CREATED',
-      user_id: req.user.id,
+      user_id: req.user._id,
       details: 'Property listing created'
     };
 
-    await property.update({
+    const property = await Property.create({
+      ...req.body,
+      owner_id: req.user._id,
+      verification_status: 'pending',
       history_log: [historyEntry]
     });
 
@@ -109,7 +82,7 @@ exports.createProperty = async (req, res) => {
 
 exports.updateProperty = async (req, res) => {
   try {
-    const property = await Property.findByPk(req.params.id);
+    const property = await Property.findById(req.params.id);
 
     if (!property) {
       return res.status(404).json({
@@ -119,7 +92,7 @@ exports.updateProperty = async (req, res) => {
     }
 
     // Check ownership or admin status
-    if (property.owner_id !== req.user.id && req.user.role !== 'admin') {
+    if (property.owner_id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this property'
@@ -130,17 +103,14 @@ exports.updateProperty = async (req, res) => {
     const historyEntry = {
       timestamp: new Date(),
       action: 'PROPERTY_UPDATED',
-      user_id: req.user.id,
+      user_id: req.user._id,
       details: 'Property details updated',
       changes: req.body
     };
 
-    const currentHistory = property.history_log || [];
-    
-    await property.update({
-      ...req.body,
-      history_log: [...currentHistory, historyEntry]
-    });
+    property.set(req.body);
+    property.history_log.push(historyEntry);
+    await property.save();
 
     res.json({
       success: true,
@@ -157,7 +127,7 @@ exports.updateProperty = async (req, res) => {
 
 exports.deleteProperty = async (req, res) => {
   try {
-    const property = await Property.findByPk(req.params.id);
+    const property = await Property.findById(req.params.id);
 
     if (!property) {
       return res.status(404).json({
@@ -167,14 +137,14 @@ exports.deleteProperty = async (req, res) => {
     }
 
     // Check ownership or admin status
-    if (property.owner_id !== req.user.id && req.user.role !== 'admin') {
+    if (property.owner_id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this property'
       });
     }
 
-    await property.destroy();
+    await property.deleteOne();
 
     res.json({
       success: true,
@@ -315,151 +285,18 @@ exports.verifyPropertyByDetails = async (req, res) => {
   }
 };
 
-exports.uploadDocument = async (req, res) => {
-  try {
-    const property = await Property.findByPk(req.params.id);
-
-    if (!property) {
-      return res.status(404).json({
-        success: false,
-        message: 'Property not found'
-      });
-    }
-
-    // Check ownership or admin status
-    if (property.owner_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to upload documents for this property'
-      });
-    }
-
-    const { document_type, document_name, document_url } = req.body;
-
-    const newDocument = {
-      type: document_type,
-      name: document_name,
-      url: document_url,
-      uploaded_by: req.user.id,
-      uploaded_at: new Date(),
-      verification_status: 'pending'
-    };
-
-    const currentDocs = property.documents || [];
-    const historyEntry = {
-      timestamp: new Date(),
-      action: 'DOCUMENT_UPLOADED',
-      user_id: req.user.id,
-      details: `New ${document_type} document uploaded: ${document_name}`
-    };
-
-    await property.update({
-      documents: [...currentDocs, newDocument],
-      history_log: [...property.history_log, historyEntry]
-    });
-
-    res.json({
-      success: true,
-      data: property
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error uploading document',
-      error: error.message
-    });
-  }
-};
-
-exports.verifyDocument = async (req, res) => {
-  try {
-    const property = await Property.findByPk(req.params.id);
-
-    if (!property) {
-      return res.status(404).json({
-        success: false,
-        message: 'Property not found'
-      });
-    }
-
-    // Only admins can verify documents
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to verify documents'
-      });
-    }
-
-    const { document_index, verification_status, notes } = req.body;
-    const documents = [...property.documents];
-
-    if (!documents[document_index]) {
-      return res.status(404).json({
-        success: false,
-        message: 'Document not found'
-      });
-    }
-
-    // Update document verification status
-    documents[document_index] = {
-      ...documents[document_index],
-      verification_status,
-      verified_by: req.user.id,
-      verified_at: new Date(),
-      verification_notes: notes
-    };
-
-    // Add to history log
-    const historyEntry = {
-      timestamp: new Date(),
-      action: 'DOCUMENT_VERIFIED',
-      user_id: req.user.id,
-      details: `Document ${documents[document_index].name} verified with status: ${verification_status}`,
-      notes: notes
-    };
-
-    // Update property verification status if all documents are verified
-    let propertyVerificationStatus = property.verification_status;
-    const allDocumentsVerified = documents.every(doc => doc.verification_status === 'verified');
-    const anyDocumentRejected = documents.some(doc => doc.verification_status === 'rejected');
-
-    if (allDocumentsVerified) {
-      propertyVerificationStatus = 'verified';
-    } else if (anyDocumentRejected) {
-      propertyVerificationStatus = 'rejected';
-    }
-
-    await property.update({
-      documents,
-      verification_status: propertyVerificationStatus,
-      history_log: [...property.history_log, historyEntry]
-    });
-
-    res.json({
-      success: true,
-      data: property
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error verifying document',
-      error: error.message
-    });
-  }
-};
-
 // Helper function to calculate distance between two points in meters
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371e3; // Earth's radius in meters
-  const φ1 = lat1 * Math.PI/180;
-  const φ2 = lat2 * Math.PI/180;
-  const Δφ = (lat2-lat1) * Math.PI/180;
-  const Δλ = (lon2-lon1) * Math.PI/180;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
 
-  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-          Math.cos(φ1) * Math.cos(φ2) *
-          Math.sin(Δλ/2) * Math.sin(Δλ/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
 } 

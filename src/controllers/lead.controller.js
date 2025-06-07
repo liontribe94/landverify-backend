@@ -1,33 +1,19 @@
-const { Lead, Agent, Deal } = require('../models');
+const Lead = require('../models/lead.model');
 
 exports.getAllLeads = async (req, res) => {
   try {
     const filters = {};
     if (req.query.status) filters.status = req.query.status;
     if (req.query.source) filters.source = req.query.source;
-    if (req.query.assigned_agent_id) filters.assigned_agent_id = req.query.assigned_agent_id;
 
     // If user is an agent, only show their leads
     if (req.user.role === 'agent') {
-      filters.assigned_agent_id = req.user.id;
+      filters.assigned_agent = req.user._id;
     }
 
-    const leads = await Lead.findAll({
-      where: filters,
-      include: [
-        {
-          model: Agent,
-          as: 'assigned_agent',
-          attributes: ['id', 'user_id']
-        },
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value', 'created_at']
-        }
-      ],
-      order: [['created_at', 'DESC']]
-    });
+    const leads = await Lead.find(filters)
+      .populate('assigned_agent', 'first_name last_name email')
+      .sort({ created_at: -1 });
 
     res.json({
       success: true,
@@ -44,33 +30,15 @@ exports.getAllLeads = async (req, res) => {
 
 exports.getLeadById = async (req, res) => {
   try {
-    const lead = await Lead.findByPk(req.params.id, {
-      include: [
-        {
-          model: Agent,
-          as: 'assigned_agent',
-          attributes: ['id', 'user_id']
-        },
-        {
-          model: Deal,
-          as: 'deals',
-          attributes: ['id', 'stage', 'value', 'created_at']
-        }
-      ]
-    });
+    const lead = await Lead.findById(req.params.id)
+      .populate('assigned_agent', 'first_name last_name email')
+      .populate('tasks')
+      .populate('property_interest.property');
 
     if (!lead) {
       return res.status(404).json({
         success: false,
         message: 'Lead not found'
-      });
-    }
-
-    // Check access permission
-    if (req.user.role === 'agent' && lead.assigned_agent_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to view this lead'
       });
     }
 
@@ -91,12 +59,7 @@ exports.createLead = async (req, res) => {
   try {
     const lead = await Lead.create({
       ...req.body,
-      status: 'new',
-      communication_history: [{
-        timestamp: new Date(),
-        type: 'SYSTEM',
-        message: 'Lead created in system'
-      }]
+      assigned_agent: req.user._id
     });
 
     res.status(201).json({
@@ -114,7 +77,7 @@ exports.createLead = async (req, res) => {
 
 exports.updateLead = async (req, res) => {
   try {
-    const lead = await Lead.findByPk(req.params.id);
+    const lead = await Lead.findById(req.params.id);
 
     if (!lead) {
       return res.status(404).json({
@@ -124,7 +87,7 @@ exports.updateLead = async (req, res) => {
     }
 
     // Check access permission
-    if (req.user.role === 'agent' && lead.assigned_agent_id !== req.user.id) {
+    if (req.user.role === 'agent' && lead.assigned_agent.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this lead'
@@ -133,17 +96,17 @@ exports.updateLead = async (req, res) => {
 
     // Add to communication history if status changes
     if (req.body.status && req.body.status !== lead.status) {
-      const currentHistory = lead.communication_history || [];
       const historyEntry = {
         timestamp: new Date(),
         type: 'STATUS_CHANGE',
         message: `Status updated from ${lead.status} to ${req.body.status}`,
-        user_id: req.user.id
+        user_id: req.user._id
       };
-      req.body.communication_history = [...currentHistory, historyEntry];
+      lead.communication_history.push(historyEntry);
     }
 
-    await lead.update(req.body);
+    lead.set(req.body);
+    await lead.save();
 
     res.json({
       success: true,
@@ -160,7 +123,7 @@ exports.updateLead = async (req, res) => {
 
 exports.deleteLead = async (req, res) => {
   try {
-    const lead = await Lead.findByPk(req.params.id);
+    const lead = await Lead.findById(req.params.id);
 
     if (!lead) {
       return res.status(404).json({
@@ -177,7 +140,7 @@ exports.deleteLead = async (req, res) => {
       });
     }
 
-    await lead.destroy();
+    await lead.deleteOne();
 
     res.json({
       success: true,
@@ -194,8 +157,7 @@ exports.deleteLead = async (req, res) => {
 
 exports.addCommunication = async (req, res) => {
   try {
-    const { type, message } = req.body;
-    const lead = await Lead.findByPk(req.params.id);
+    const lead = await Lead.findById(req.params.id);
 
     if (!lead) {
       return res.status(404).json({
@@ -205,25 +167,21 @@ exports.addCommunication = async (req, res) => {
     }
 
     // Check access permission
-    if (req.user.role === 'agent' && lead.assigned_agent_id !== req.user.id) {
+    if (req.user.role === 'agent' && lead.assigned_agent.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to update this lead'
+        message: 'Not authorized to add communication to this lead'
       });
     }
 
     const communicationEntry = {
+      ...req.body,
       timestamp: new Date(),
-      type,
-      message,
-      user_id: req.user.id
+      user_id: req.user._id
     };
 
-    const currentHistory = lead.communication_history || [];
-    
-    await lead.update({
-      communication_history: [...currentHistory, communicationEntry]
-    });
+    lead.communication_history.push(communicationEntry);
+    await lead.save();
 
     res.json({
       success: true,
@@ -240,8 +198,7 @@ exports.addCommunication = async (req, res) => {
 
 exports.assignAgent = async (req, res) => {
   try {
-    const { agent_id } = req.body;
-    const lead = await Lead.findByPk(req.params.id);
+    const lead = await Lead.findById(req.params.id);
 
     if (!lead) {
       return res.status(404).json({
@@ -250,27 +207,23 @@ exports.assignAgent = async (req, res) => {
       });
     }
 
-    // Only admins can assign agents
+    // Only admins can assign leads
     if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to assign agents'
+        message: 'Not authorized to assign leads'
       });
     }
 
-    const communicationEntry = {
+    lead.assigned_agent = req.body.agent_id;
+    lead.communication_history.push({
       timestamp: new Date(),
       type: 'ASSIGNMENT',
-      message: `Lead assigned to agent ID: ${agent_id}`,
-      user_id: req.user.id
-    };
-
-    const currentHistory = lead.communication_history || [];
-
-    await lead.update({
-      assigned_agent_id: agent_id,
-      communication_history: [...currentHistory, communicationEntry]
+      message: `Lead assigned to agent`,
+      user_id: req.user._id
     });
+
+    await lead.save();
 
     res.json({
       success: true,
@@ -279,7 +232,7 @@ exports.assignAgent = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Error assigning agent',
+      message: 'Error assigning lead',
       error: error.message
     });
   }

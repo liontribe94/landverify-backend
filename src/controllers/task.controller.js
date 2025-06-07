@@ -1,4 +1,4 @@
-const { Task, User } = require('../models');
+const Task = require('../models/task.model');
 
 exports.getAllTasks = async (req, res) => {
   try {
@@ -8,28 +8,13 @@ exports.getAllTasks = async (req, res) => {
 
     // If user is not admin, only show assigned tasks
     if (req.user.role !== 'admin') {
-      filters.assigned_to = req.user.id;
+      filters.assigned_to = req.user._id;
     }
 
-    const tasks = await Task.findAll({
-      where: filters,
-      include: [
-        {
-          model: User,
-          as: 'assignee',
-          attributes: ['id', 'first_name', 'last_name', 'email']
-        },
-        {
-          model: User,
-          as: 'assigner',
-          attributes: ['id', 'first_name', 'last_name', 'email']
-        }
-      ],
-      order: [
-        ['due_date', 'ASC'],
-        ['priority', 'DESC']
-      ]
-    });
+    const tasks = await Task.find(filters)
+      .populate('assigned_to', 'first_name last_name email')
+      .populate('assigned_by', 'first_name last_name email')
+      .sort({ due_date: 1, priority: -1 });
 
     res.json({
       success: true,
@@ -46,33 +31,14 @@ exports.getAllTasks = async (req, res) => {
 
 exports.getTaskById = async (req, res) => {
   try {
-    const task = await Task.findByPk(req.params.id, {
-      include: [
-        {
-          model: User,
-          as: 'assignee',
-          attributes: ['id', 'first_name', 'last_name', 'email']
-        },
-        {
-          model: User,
-          as: 'assigner',
-          attributes: ['id', 'first_name', 'last_name', 'email']
-        }
-      ]
-    });
+    const task = await Task.findById(req.params.id)
+      .populate('assigned_to', 'first_name last_name email')
+      .populate('assigned_by', 'first_name last_name email');
 
     if (!task) {
       return res.status(404).json({
         success: false,
         message: 'Task not found'
-      });
-    }
-
-    // Check access permission
-    if (req.user.role !== 'admin' && task.assigned_to !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to view this task'
       });
     }
 
@@ -93,7 +59,7 @@ exports.createTask = async (req, res) => {
   try {
     const task = await Task.create({
       ...req.body,
-      assigned_by: req.user.id
+      assigned_by: req.user._id
     });
 
     res.status(201).json({
@@ -111,7 +77,7 @@ exports.createTask = async (req, res) => {
 
 exports.updateTask = async (req, res) => {
   try {
-    const task = await Task.findByPk(req.params.id);
+    const task = await Task.findById(req.params.id);
 
     if (!task) {
       return res.status(404).json({
@@ -120,15 +86,18 @@ exports.updateTask = async (req, res) => {
       });
     }
 
-    // Check access permission
-    if (req.user.role !== 'admin' && task.assigned_to !== req.user.id) {
+    // Check if user is admin, assignee, or assigner
+    if (req.user.role !== 'admin' && 
+        task.assigned_to.toString() !== req.user._id.toString() && 
+        task.assigned_by.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this task'
       });
     }
 
-    await task.update(req.body);
+    task.set(req.body);
+    await task.save();
 
     res.json({
       success: true,
@@ -145,7 +114,7 @@ exports.updateTask = async (req, res) => {
 
 exports.deleteTask = async (req, res) => {
   try {
-    const task = await Task.findByPk(req.params.id);
+    const task = await Task.findById(req.params.id);
 
     if (!task) {
       return res.status(404).json({
@@ -155,14 +124,14 @@ exports.deleteTask = async (req, res) => {
     }
 
     // Only admin or task creator can delete
-    if (req.user.role !== 'admin' && task.assigned_by !== req.user.id) {
+    if (req.user.role !== 'admin' && task.assigned_by.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this task'
       });
     }
 
-    await task.destroy();
+    await task.deleteOne();
 
     res.json({
       success: true,
@@ -179,8 +148,7 @@ exports.deleteTask = async (req, res) => {
 
 exports.updateTaskStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const task = await Task.findByPk(req.params.id);
+    const task = await Task.findById(req.params.id);
 
     if (!task) {
       return res.status(404).json({
@@ -189,15 +157,16 @@ exports.updateTaskStatus = async (req, res) => {
       });
     }
 
-    // Check access permission
-    if (req.user.role !== 'admin' && task.assigned_to !== req.user.id) {
+    // Only assignee or admin can update status
+    if (req.user.role !== 'admin' && task.assigned_to.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to update this task'
+        message: 'Not authorized to update task status'
       });
     }
 
-    await task.update({ status });
+    task.status = req.body.status;
+    await task.save();
 
     res.json({
       success: true,
