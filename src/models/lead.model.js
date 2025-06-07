@@ -1,76 +1,113 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Lead = sequelize.define('Lead', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
+const leadSchema = new Schema({
+  first_name: {
+    type: String,
+    required: true,
+    trim: true
   },
-  name: {
-    type: DataTypes.TEXT,
-    allowNull: false
+  last_name: {
+    type: String,
+    required: true,
+    trim: true
   },
   email: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-    validate: {
-      isEmail: true
-    }
+    type: String,
+    required: true,
+    trim: true,
+    lowercase: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
   phone: {
-    type: DataTypes.TEXT,
-    allowNull: false
+    type: String,
+    trim: true
   },
   source: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-    validate: {
-      isIn: [['facebook', 'referral', 'website', 'direct', 'other']]
-    }
+    type: String,
+    enum: ['website', 'referral', 'social_media', 'direct', 'other'],
+    required: true
   },
   status: {
-    type: DataTypes.TEXT,
-    defaultValue: 'new',
-    validate: {
-      isIn: [['new', 'contacted', 'scheduled_visit', 'negotiating', 'closed', 'lost']]
+    type: String,
+    enum: ['new', 'contacted', 'qualified', 'proposal', 'negotiation', 'won', 'lost'],
+    default: 'new'
+  },
+  assigned_agent: {
+    type: Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  property_interest: [{
+    property: {
+      type: Schema.Types.ObjectId,
+      ref: 'Property'
+    },
+    interest_level: {
+      type: String,
+      enum: ['low', 'medium', 'high']
+    },
+    notes: String
+  }],
+  requirements: {
+    budget: {
+      min: Number,
+      max: Number
+    },
+    property_type: [String],
+    preferred_locations: [String],
+    bedrooms: Number,
+    bathrooms: Number,
+    other_preferences: Object
+  },
+  communication_history: [{
+    type: {
+      type: String,
+      enum: ['email', 'call', 'meeting', 'message']
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    notes: String,
+    outcome: String
+  }],
+  tasks: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Task'
+  }],
+  documents: [{
+    title: String,
+    url: String,
+    type: String,
+    uploaded_at: {
+      type: Date,
+      default: Date.now
     }
-  },
-  property_interest: {
-    type: DataTypes.JSONB,
-    defaultValue: {
-      type: [],
-      location: [],
-      price_range: {}
+  }],
+  notes: [{
+    content: String,
+    created_by: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    created_at: {
+      type: Date,
+      default: Date.now
     }
-  },
-  assigned_agent_id: {
-    type: DataTypes.UUID,
-    allowNull: true
-  },
-  notes: {
-    type: DataTypes.TEXT
-  },
-  communication_history: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  reminders: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  }
+  }]
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
 
-module.exports = Lead; 
+// Create indexes for common queries
+leadSchema.index({ assigned_agent: 1, status: 1 });
+leadSchema.index({ email: 1 });
+leadSchema.index({ phone: 1 });
+leadSchema.index({ 'property_interest.property': 1 });
+
+const Lead = mongoose.model('Lead', leadSchema);
+
+module.exports = Lead;

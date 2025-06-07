@@ -1,65 +1,66 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
-const User = require('./user.model');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Land = sequelize.define('Land', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
+const landSchema = new Schema({
   title: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   description: {
-    type: DataTypes.TEXT
+    type: String
   },
   location: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   coordinates: {
-    type: DataTypes.JSONB,
-    allowNull: false,
-    validate: {
-      hasLatLng(value) {
-        if (!value.latitude || !value.longitude) {
-          throw new Error('Coordinates must include latitude and longitude');
-        }
+    type: {
+      latitude: {
+        type: Number,
+        required: true
+      },
+      longitude: {
+        type: Number,
+        required: true
       }
+    },
+    required: true,
+    validate: {
+      validator: function(value) {
+        return value.latitude && value.longitude;
+      },
+      message: 'Coordinates must include latitude and longitude'
     }
   },
   area: {
-    type: DataTypes.FLOAT,
-    allowNull: false
+    type: Number,
+    required: true
   },
   price: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: false
+    type: Number,
+    required: true
   },
   status: {
-    type: DataTypes.ENUM('available', 'pending', 'sold'),
-    defaultValue: 'available'
+    type: String,
+    enum: ['available', 'pending', 'sold'],
+    default: 'available'
   },
   documents: {
-    type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: []
+    type: [String],
+    default: []
   },
-  ownerId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    references: {
-      model: User,
-      key: 'id'
-    }
+  owner: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   }
 }, {
   timestamps: true
 });
 
-// Define relationship
-Land.belongsTo(User, { as: 'owner', foreignKey: 'ownerId' });
-User.hasMany(Land, { as: 'lands', foreignKey: 'ownerId' });
+// Create index for geospatial queries if needed
+landSchema.index({ 'coordinates.latitude': 1, 'coordinates.longitude': 1 });
+
+const Land = mongoose.model('Land', landSchema);
 
 module.exports = Land; 

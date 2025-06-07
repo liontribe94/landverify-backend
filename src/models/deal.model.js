@@ -1,72 +1,76 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Deal = sequelize.define('Deal', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
+const dealSchema = new Schema({
+  property: {
+    type: Schema.Types.ObjectId,
+    ref: 'Property',
+    required: true
   },
-  property_id: {
-    type: DataTypes.UUID,
-    allowNull: false
+  lead: {
+    type: Schema.Types.ObjectId,
+    ref: 'Lead',
+    required: true
   },
-  lead_id: {
-    type: DataTypes.UUID,
-    allowNull: false
-  },
-  agent_id: {
-    type: DataTypes.UUID,
-    allowNull: false
+  agent: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
   stage: {
-    type: DataTypes.TEXT,
-    defaultValue: 'new',
-    validate: {
-      isIn: [['new', 'contact_made', 'viewing_scheduled', 'negotiation', 'agreement', 'documentation', 'closed', 'cancelled']]
-    }
+    type: String,
+    enum: ['new', 'contact_made', 'viewing_scheduled', 'negotiation', 'agreement', 'documentation', 'closed', 'cancelled'],
+    default: 'new'
   },
   deal_type: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-    validate: {
-      isIn: [['sale', 'rent', 'lease']]
-    }
+    type: String,
+    enum: ['sale', 'rent', 'lease'],
+    required: true
   },
   value: {
-    type: DataTypes.DECIMAL(12, 2),
-    allowNull: false
+    type: Number,
+    required: true
   },
   commission: {
-    type: DataTypes.DECIMAL(12, 2),
-    allowNull: false
+    type: Number,
+    required: true
   },
   closing_date: {
-    type: DataTypes.DATE
+    type: Date
   },
-  documents: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
+  documents: [{
+    type: {
+      type: String
+    },
+    url: String,
+    uploaded_at: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   notes: {
-    type: DataTypes.TEXT
+    type: String
   },
-  activity_log: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  }
+  activity_log: [{
+    action: String,
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    details: Object
+  }]
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
+
+// Create indexes for common queries
+dealSchema.index({ agent: 1, stage: 1 });
+dealSchema.index({ property: 1 });
+dealSchema.index({ lead: 1 });
+
+const Deal = mongoose.model('Deal', dealSchema);
 
 module.exports = Deal; 

@@ -1,98 +1,113 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Property = sequelize.define('Property', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
+const propertySchema = new Schema({
   owner_id: {
-    type: DataTypes.UUID,
-    allowNull: false
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
   owner_name: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   email: {
-    type: DataTypes.STRING,
+    type: String,
     validate: {
-      isEmail: true
+      validator: function(v) {
+        return /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(v);
+      },
+      message: props => `${props.value} is not a valid email!`
     }
   },
   phone: {
-    type: DataTypes.STRING
+    type: String
   },
   title_number: {
-    type: DataTypes.STRING,
+    type: String,
     unique: true
   },
   survey_plan_number: {
-    type: DataTypes.STRING,
+    type: String,
     unique: true
   },
   address: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   coordinates: {
-    type: DataTypes.GEOMETRY('POINT'),
-    allowNull: true
-  },
-  property_type: {
-    type: DataTypes.STRING
-  },
-  size: {
-    type: DataTypes.DECIMAL(10, 2)
-  },
-  price: {
-    type: DataTypes.DECIMAL(15, 2)
-  },
-  description: {
-    type: DataTypes.TEXT
-  },
-  images: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  documents: {
-    type: DataTypes.JSONB,
-    defaultValue: [],
-    comment: 'Array of document objects with type, url, status, etc.'
-  },
-  verification_status: {
-    type: DataTypes.STRING,
-    defaultValue: 'pending',
-    validate: {
-      isIn: [['pending', 'verified', 'rejected', 'flagged']]
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number],
+      required: true
     }
   },
+  property_type: {
+    type: String
+  },
+  size: {
+    type: Number
+  },
+  price: {
+    type: Number
+  },
+  description: {
+    type: String
+  },
+  images: {
+    type: [String],
+    default: []
+  },
+  documents: {
+    type: [{
+      type: {
+        type: String
+      },
+      url: String,
+      status: String,
+      uploaded_at: Date
+    }],
+    default: []
+  },
+  verification_status: {
+    type: String,
+    enum: ['pending', 'verified', 'rejected', 'flagged'],
+    default: 'pending'
+  },
   verification_details: {
-    type: DataTypes.JSONB,
-    defaultValue: {},
-    comment: 'Details of verification process including history'
+    type: Object,
+    default: {}
   },
   history_log: {
-    type: DataTypes.JSONB,
-    defaultValue: []
+    type: [{
+      action: String,
+      timestamp: Date,
+      details: Object
+    }],
+    default: []
   },
   monitoring_alerts: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
+    type: [{
+      type: String,
+      message: String,
+      timestamp: Date
+    }],
+    default: []
   }
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
+
+// Index for geospatial queries
+propertySchema.index({ coordinates: '2dsphere' });
+
+const Property = mongoose.model('Property', propertySchema);
 
 module.exports = Property; 

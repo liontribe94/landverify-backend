@@ -1,63 +1,61 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Agent = sequelize.define('Agent', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
+const agentSchema = new Schema({
   user_id: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    unique: true
+    type: Schema.Types.ObjectId,
+    required: true,
+    unique: true,
+    ref: 'User'
   },
   license_number: {
-    type: DataTypes.TEXT,
+    type: String,
     unique: true
   },
   specializations: {
-    type: DataTypes.JSONB,
-    defaultValue: []
+    type: [String],
+    default: []
   },
   areas_served: {
-    type: DataTypes.JSONB,
-    defaultValue: []
+    type: [String],
+    default: []
   },
   bio: {
-    type: DataTypes.TEXT
+    type: String
   },
   profile_image: {
-    type: DataTypes.TEXT
+    type: String
   },
   performance_metrics: {
-    type: DataTypes.JSONB,
-    defaultValue: {
-      total_deals: 0,
-      deals_closed: 0,
-      total_value: 0,
-      lead_conversion_rate: 0
+    total_deals: {
+      type: Number,
+      default: 0
+    },
+    deals_closed: {
+      type: Number,
+      default: 0
+    },
+    total_value: {
+      type: Number,
+      default: 0
+    },
+    lead_conversion_rate: {
+      type: Number,
+      default: 0
     }
   },
   status: {
-    type: DataTypes.TEXT,
-    defaultValue: 'active',
-    validate: {
-      isIn: [['active', 'inactive', 'suspended']]
-    }
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
+    type: String,
+    enum: ['active', 'inactive', 'suspended'],
+    default: 'active'
   }
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
+
+const Agent = mongoose.model('Agent', agentSchema);
 
 module.exports = Agent; 

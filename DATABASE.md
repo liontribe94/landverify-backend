@@ -259,4 +259,64 @@ USING (
 2. Sensitive data is encrypted at rest
 3. API access is restricted by role
 4. File uploads are validated and scanned
-5. Rate limiting is enabled for API endpoints 
+5. Rate limiting is enabled for API endpoints
+
+# Database Setup Instructions
+
+## MongoDB Setup
+
+### Local Development
+
+1. Install MongoDB Community Edition:
+   - Windows: Download and install from [MongoDB Download Center](https://www.mongodb.com/try/download/community)
+   - Mac: `brew install mongodb-community`
+   - Linux: Follow [MongoDB Installation Guide](https://docs.mongodb.com/manual/administration/install-on-linux/)
+
+2. Start MongoDB locally:
+   - Windows: MongoDB should run as a service automatically
+   - Mac/Linux: `sudo service mongod start` or `brew services start mongodb-community`
+
+3. Set up environment variables in your `.env` file:
+```
+MONGODB_URI=mongodb://localhost:27017/landverify
+```
+
+### Production Setup (MongoDB Atlas)
+
+1. Create a MongoDB Atlas account at [https://www.mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
+
+2. Create a new cluster (free tier available)
+
+3. Set up database access:
+   - Create a database user with read/write permissions
+   - Add your IP address to the IP whitelist (or allow access from anywhere for development)
+
+4. Get your connection string:
+   - Click "Connect" on your cluster
+   - Choose "Connect your application"
+   - Copy the connection string
+
+5. Set up environment variables in your production environment (e.g., Render):
+```
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/landverify?retryWrites=true&w=majority
+```
+
+Replace `<username>`, `<password>`, and `<cluster>` with your actual MongoDB Atlas credentials.
+
+### Database Migration
+
+If you're migrating from PostgreSQL to MongoDB, ensure that:
+
+1. All your data is backed up from the PostgreSQL database
+2. The data is properly transformed to match the MongoDB schema
+3. The application models have been updated to use Mongoose instead of Sequelize
+4. All queries in the application have been updated to use MongoDB syntax
+
+### Testing the Connection
+
+You can test the database connection by running the application:
+```bash
+npm run dev
+```
+
+Look for the console message: "MongoDB connection established successfully." 

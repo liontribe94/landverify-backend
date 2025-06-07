@@ -1,72 +1,84 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Calendar = sequelize.define('Calendar', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
+const calendarSchema = new Schema({
   title: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   description: {
-    type: DataTypes.TEXT
+    type: String
   },
   start_time: {
-    type: DataTypes.DATE,
-    allowNull: false
+    type: Date,
+    required: true
   },
   end_time: {
-    type: DataTypes.DATE,
-    allowNull: false
+    type: Date,
+    required: true
   },
   event_type: {
-    type: DataTypes.STRING,
-    validate: {
-      isIn: [['meeting', 'viewing', 'inspection', 'follow_up', 'other']]
-    }
+    type: String,
+    enum: ['meeting', 'viewing', 'inspection', 'follow_up', 'other']
   },
   location: {
-    type: DataTypes.STRING
+    type: String
   },
-  attendees: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
+  attendees: [{
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'declined'],
+      default: 'pending'
+    }
+  }],
   related_to: {
-    type: DataTypes.JSONB,
-    defaultValue: {},
-    comment: 'Can link to property, lead, deal, or task'
-  },
-  reminders: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  created_by: {
-    type: DataTypes.UUID,
-    allowNull: false
-  },
-  status: {
-    type: DataTypes.STRING,
-    defaultValue: 'scheduled',
-    validate: {
-      isIn: [['scheduled', 'in_progress', 'completed', 'cancelled']]
+    model: {
+      type: String,
+      enum: ['Property', 'Lead', 'Deal', 'Task']
+    },
+    id: {
+      type: Schema.Types.ObjectId,
+      refPath: 'related_to.model'
     }
   },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
+  reminders: [{
+    time: Date,
+    type: {
+      type: String,
+      enum: ['email', 'sms', 'push'],
+      default: 'email'
+    },
+    sent: {
+      type: Boolean,
+      default: false
+    }
+  }],
+  created_by: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
+  status: {
+    type: String,
+    enum: ['scheduled', 'in_progress', 'completed', 'cancelled'],
+    default: 'scheduled'
   }
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
+
+// Create indexes for common queries
+calendarSchema.index({ start_time: 1, end_time: 1 });
+calendarSchema.index({ created_by: 1 });
+calendarSchema.index({ 'attendees.user': 1 });
+
+const Calendar = mongoose.model('Calendar', calendarSchema);
 
 module.exports = Calendar; 

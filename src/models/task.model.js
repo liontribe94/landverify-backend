@@ -1,64 +1,67 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const Task = sequelize.define('Task', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
+const taskSchema = new Schema({
   title: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   description: {
-    type: DataTypes.TEXT
+    type: String
   },
   due_date: {
-    type: DataTypes.DATE
+    type: Date
   },
   priority: {
-    type: DataTypes.STRING,
-    validate: {
-      isIn: [['low', 'medium', 'high']]
-    }
+    type: String,
+    enum: ['low', 'medium', 'high']
   },
   status: {
-    type: DataTypes.STRING,
-    defaultValue: 'pending',
-    validate: {
-      isIn: [['pending', 'in_progress', 'completed', 'cancelled']]
-    }
+    type: String,
+    enum: ['pending', 'in_progress', 'completed', 'cancelled'],
+    default: 'pending'
   },
   assigned_to: {
-    type: DataTypes.UUID,
-    allowNull: false
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
   assigned_by: {
-    type: DataTypes.UUID,
-    allowNull: false
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
   related_to: {
-    type: DataTypes.JSONB,
-    defaultValue: {},
-    comment: 'Can link to property, lead, or deal'
+    type: {
+      model: {
+        type: String,
+        enum: ['Property', 'Lead', 'Deal']
+      },
+      id: {
+        type: Schema.Types.ObjectId,
+        refPath: 'related_to.model'
+      }
+    }
   },
-  reminders: {
-    type: DataTypes.JSONB,
-    defaultValue: []
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  }
+  reminders: [{
+    date: Date,
+    message: String,
+    sent: {
+      type: Boolean,
+      default: false
+    }
+  }]
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
+
+// Create indexes for common queries
+taskSchema.index({ assigned_to: 1, status: 1 });
+taskSchema.index({ due_date: 1 });
+
+const Task = mongoose.model('Task', taskSchema);
 
 module.exports = Task; 
