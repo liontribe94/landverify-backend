@@ -7,10 +7,7 @@ const connectDB = async () => {
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/landverify';
     console.log('Using MongoDB URI:', mongoURI);
 
-    await mongoose.connect(mongoURI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    await mongoose.connect(mongoURI);
 
     console.log('MongoDB connection established successfully.');
   } catch (error) {
