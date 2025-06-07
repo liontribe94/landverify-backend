@@ -1,60 +1,52 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-const User = sequelize.define('User', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
+const userSchema = new mongoose.Schema({
   first_name: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true,
+    trim: true
   },
   last_name: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true,
+    trim: true
   },
   email: {
-    type: DataTypes.STRING,
-    allowNull: false,
+    type: String,
+    required: true,
     unique: true,
-    validate: {
-      isEmail: true
-    }
+    trim: true,
+    lowercase: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
   password: {
-    type: DataTypes.STRING,
-    allowNull: false
+    type: String,
+    required: true
   },
   role: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-    defaultValue: 'client',
-    validate: {
-      isIn: [['admin', 'agent', 'property_owner', 'client']]
-    }
+    type: String,
+    required: true,
+    default: 'client',
+    enum: ['admin', 'agent', 'property_owner', 'client']
   },
   phone: {
-    type: DataTypes.STRING
+    type: String
   },
   profile_image: {
-    type: DataTypes.STRING
+    type: String
   },
   status: {
-    type: DataTypes.TEXT,
-    defaultValue: 'active',
-    validate: {
-      isIn: [['active', 'inactive', 'suspended']]
-    }
+    type: String,
+    default: 'active',
+    enum: ['active', 'inactive', 'suspended']
   },
   last_login: {
-    type: DataTypes.DATE
+    type: Date
   },
   preferences: {
-    type: DataTypes.JSONB,
-    defaultValue: {
+    type: Object,
+    default: {
       notifications: {
         email: true,
         sms: false,
@@ -62,38 +54,28 @@ const User = sequelize.define('User', {
       },
       theme: 'light'
     }
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
   }
 }, {
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
-  hooks: {
-    beforeCreate: async (user) => {
-      if (user.password) {
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(user.password, salt);
-      }
-    },
-    beforeUpdate: async (user) => {
-      if (user.changed('password')) {
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(user.password, salt);
-      }
-    }
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   }
 });
 
-// Instance method to check password
-User.prototype.comparePassword = async function(candidatePassword) {
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+  if (this.isModified('password')) {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+  }
+  next();
+});
+
+// Compare password method
+userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
+
+const User = mongoose.model('User', userSchema);
 
 module.exports = User; 

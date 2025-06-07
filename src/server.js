@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { sequelize } = require('./config/database');
+const { connectDB } = require('./config/database');
 const authRoutes = require('./routes/auth.routes');
 const propertyRoutes = require('./routes/property.routes');
 const leadRoutes = require('./routes/lead.routes');
@@ -42,18 +42,15 @@ const PORT = process.env.PORT || 5000;
 // Database connection and server start
 const startServer = async () => {
   try {
-    await sequelize.authenticate();
-    console.log('Database connection established successfully.');
-    
-    // Sync all models with database
-    await sequelize.sync({ alter: true });
-    console.log('Database models synchronized.');
+    // Connect to MongoDB
+    await connectDB();
     
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
   } catch (error) {
-    console.error('Unable to connect to the database:', error);
+    console.error('Unable to start the server:', error);
+    process.exit(1);
   }
 };
 
