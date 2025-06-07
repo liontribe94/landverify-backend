@@ -1,5 +1,4 @@
 const { Calendar, User } = require('../models');
-const { Op } = require('sequelize');
 
 exports.getAllEvents = async (req, res) => {
   try {
@@ -9,29 +8,22 @@ exports.getAllEvents = async (req, res) => {
     if (event_type) filters.event_type = event_type;
     if (start_date && end_date) {
       filters.start_time = {
-        [Op.between]: [new Date(start_date), new Date(end_date)]
+        $gte: new Date(start_date),
+        $lte: new Date(end_date)
       };
     }
 
     // If user is not admin, only show events they're involved in
     if (req.user.role !== 'admin') {
-      filters[Op.or] = [
-        { created_by: req.user.id },
-        { attendees: { [Op.contains]: [req.user.id] } }
+      filters.$or = [
+        { created_by: req.user._id },
+        { 'attendees.user': req.user._id }
       ];
     }
 
-    const events = await Calendar.findAll({
-      where: filters,
-      include: [
-        {
-          model: User,
-          as: 'creator',
-          attributes: ['id', 'first_name', 'last_name', 'email']
-        }
-      ],
-      order: [['start_time', 'ASC']]
-    });
+    const events = await Calendar.find(filters)
+      .populate('created_by', 'first_name last_name email')
+      .sort({ start_time: 1 });
 
     res.json({
       success: true,
@@ -48,15 +40,8 @@ exports.getAllEvents = async (req, res) => {
 
 exports.getEventById = async (req, res) => {
   try {
-    const event = await Calendar.findByPk(req.params.id, {
-      include: [
-        {
-          model: User,
-          as: 'creator',
-          attributes: ['id', 'first_name', 'last_name', 'email']
-        }
-      ]
-    });
+    const event = await Calendar.findById(req.params.id)
+      .populate('created_by', 'first_name last_name email');
 
     if (!event) {
       return res.status(404).json({
@@ -67,8 +52,8 @@ exports.getEventById = async (req, res) => {
 
     // Check access permission
     if (req.user.role !== 'admin' && 
-        event.created_by !== req.user.id && 
-        !event.attendees.includes(req.user.id)) {
+        event.created_by.toString() !== req.user._id.toString() && 
+        !event.attendees.some(a => a.user.toString() === req.user._id.toString())) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to view this event'
@@ -92,7 +77,7 @@ exports.createEvent = async (req, res) => {
   try {
     const event = await Calendar.create({
       ...req.body,
-      created_by: req.user.id
+      created_by: req.user._id
     });
 
     res.status(201).json({

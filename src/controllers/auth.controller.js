@@ -6,7 +6,7 @@ exports.register = async (req, res) => {
     const { firstName, lastName, email, password } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findOne({ where: { email } });
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -16,15 +16,15 @@ exports.register = async (req, res) => {
 
     // Create new user
     const user = await User.create({
-      firstName,
-      lastName,
+      first_name: firstName,
+      last_name: lastName,
       email,
       password
     });
 
     // Generate token
     const token = jwt.sign(
-      { userId: user.id },
+      { userId: user._id },
       process.env.JWT_SECRET || 'your-default-secret',
       { expiresIn: '24h' }
     );
@@ -33,9 +33,9 @@ exports.register = async (req, res) => {
       success: true,
       data: {
         user: {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
+          id: user._id,
+          firstName: user.first_name,
+          lastName: user.last_name,
           email: user.email,
           role: user.role
         },
@@ -56,7 +56,7 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -75,7 +75,7 @@ exports.login = async (req, res) => {
 
     // Generate token
     const token = jwt.sign(
-      { userId: user.id },
+      { userId: user._id },
       process.env.JWT_SECRET || 'your-default-secret',
       { expiresIn: '24h' }
     );
@@ -84,9 +84,9 @@ exports.login = async (req, res) => {
       success: true,
       data: {
         user: {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
+          id: user._id,
+          firstName: user.first_name,
+          lastName: user.last_name,
           email: user.email,
           role: user.role
         },

@@ -192,7 +192,7 @@ exports.deleteProperty = async (req, res) => {
 exports.updateVerificationStatus = async (req, res) => {
   try {
     const { status, notes } = req.body;
-    const property = await Property.findByPk(req.params.id);
+    const property = await Property.findById(req.params.id);
 
     if (!property) {
       return res.status(404).json({
@@ -212,17 +212,14 @@ exports.updateVerificationStatus = async (req, res) => {
     const historyEntry = {
       timestamp: new Date(),
       action: 'VERIFICATION_STATUS_UPDATED',
-      user_id: req.user.id,
+      user_id: req.user._id,
       details: `Verification status updated to ${status}`,
       notes: notes
     };
 
-    const currentHistory = property.history_log || [];
-
-    await property.update({
-      verification_status: status,
-      history_log: [...currentHistory, historyEntry]
-    });
+    property.verification_status = status;
+    property.history_log.push(historyEntry);
+    await property.save();
 
     res.json({
       success: true,
@@ -250,27 +247,19 @@ exports.verifyPropertyByDetails = async (req, res) => {
 
     // Build search query
     const searchQuery = {
-      [Op.or]: []
+      $or: []
     };
 
     if (title_number) {
-      searchQuery[Op.or].push({ title_number });
+      searchQuery.$or.push({ title_number });
     }
 
     if (survey_plan_number) {
-      searchQuery[Op.or].push({ survey_plan_number });
+      searchQuery.$or.push({ survey_plan_number });
     }
 
-    const property = await Property.findOne({
-      where: searchQuery,
-      include: [
-        {
-          model: User,
-          as: 'owner',
-          attributes: ['id', 'first_name', 'last_name', 'email', 'phone']
-        }
-      ]
-    });
+    const property = await Property.findOne(searchQuery)
+      .populate('owner_id', 'first_name last_name email phone');
 
     if (!property) {
       return res.status(404).json({
@@ -307,15 +296,13 @@ exports.verifyPropertyByDetails = async (req, res) => {
       }
     }
 
-    // Return verification result
     res.json({
       success: true,
       data: {
         property,
         verification: {
-          status: property.verification_status,
-          details: property.verification_details,
-          documents: property.documents
+          status: 'verified',
+          message: 'Property details match the records'
         }
       }
     });
