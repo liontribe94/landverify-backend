@@ -5,14 +5,19 @@ console.log('Starting database configuration...');
 const connectDB = async () => {
   try {
     // Load environment variables
-    if (!process.env.MONGODB_URI && !process.env.MONGO_URL) {
+    let mongoURI = process.env.MONGO_URL || process.env.MONGODB_URI;
+    
+    if (!mongoURI) {
       // If no MongoDB URI is provided, use localhost for development
-      process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/landverify';
+      mongoURI = 'mongodb://127.0.0.1:27017/landverify';
       console.log('No MongoDB URI found in environment variables, using localhost');
     }
 
-    const mongoURI = process.env.MONGODB_URI || process.env.MONGO_URL;
-    console.log('MongoDB URI found:', mongoURI.replace(/\/\/(.*?:.*?@)?/, '//***:***@'));
+    // Safely log the URI without credentials
+    const sanitizedURI = mongoURI.includes('@') 
+      ? mongoURI.replace(/\/\/(.*?:.*?@)?/, '//***:***@')
+      : mongoURI;
+    console.log('MongoDB URI found:', sanitizedURI);
 
     const options = {
       serverSelectionTimeoutMS: 5000,
